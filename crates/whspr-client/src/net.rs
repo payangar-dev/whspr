@@ -20,10 +20,12 @@ impl Client {
         let mut endpoint = Endpoint::client("0.0.0.0:0".parse()?)?;
 
         // Configure client to accept self-signed certs (dev only)
-        let crypto = rustls::ClientConfig::builder()
+        let mut crypto = rustls::ClientConfig::builder()
             .dangerous()
             .with_custom_certificate_verifier(Arc::new(SkipServerVerification))
             .with_no_client_auth();
+
+        crypto.alpn_protocols = vec![b"whspr".to_vec()];
 
         let mut client_config = ClientConfig::new(Arc::new(
             quinn::crypto::rustls::QuicClientConfig::try_from(crypto)?
