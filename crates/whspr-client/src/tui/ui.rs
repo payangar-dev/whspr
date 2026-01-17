@@ -183,15 +183,9 @@ fn render_input(frame: &mut Frame, state: &AppState, area: Rect, suggestions: &[
     for (i, suggestion) in suggestions.iter().enumerate() {
         let line = match suggestion {
             Suggestion::Command { cmd, desc } => {
-                let ghost = if cmd.starts_with(&state.input) {
-                    &cmd[state.input.len()..]
-                } else {
-                    ""
-                };
                 Line::from(vec![
                     Span::raw("  "),
                     Span::styled(*cmd, Style::default().fg(Color::Yellow)),
-                    Span::styled(ghost, Style::default().fg(Color::DarkGray)),
                     Span::raw("  "),
                     Span::styled(*desc, Style::default().fg(Color::DarkGray)),
                 ])
