@@ -123,24 +123,21 @@ async fn main() -> anyhow::Result<()> {
                     }
                     AppEvent::Key(KeyCode::Tab, _) => {
                         // Command completion if input starts with /
-                        if state.input.starts_with('/') {
+                        if state.input.starts_with('/') && state.input.len() >= 2 {
                             let input_lower = state.input.to_lowercase();
-                            // Find matching commands
-                            let matches: Vec<_> = COMMANDS.iter()
-                                .filter(|(cmd, _)| cmd.to_lowercase().starts_with(&input_lower))
-                                .collect();
-
-                            if matches.len() == 1 {
-                                // Single match - complete it
-                                let cmd = matches[0].0;
+                            // Find first matching command
+                            if let Some((cmd, _)) = COMMANDS.iter()
+                                .find(|(cmd, _)| cmd.to_lowercase().starts_with(&input_lower) && cmd.to_lowercase() != input_lower)
+                            {
                                 // Extract just the command part (before space)
                                 let cmd_part = cmd.split_whitespace().next().unwrap_or(cmd);
                                 state.input = cmd_part.to_string();
-                                if cmd.contains('<') {
+                                // Add space if command takes arguments
+                                if *cmd != cmd_part {
                                     state.input.push(' ');
                                 }
                             }
-                        } else {
+                        } else if !state.input.starts_with('/') {
                             // Cycle through conversations
                             let names: Vec<_> = state.conversations.keys().cloned().collect();
                             if !names.is_empty() {

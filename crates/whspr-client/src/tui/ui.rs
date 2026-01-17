@@ -8,6 +8,14 @@ use ratatui::{
 
 use crate::state::AppState;
 
+// Available commands for suggestions
+const COMMANDS: &[(&str, &str)] = &[
+    ("/add", "Add a contact"),
+    ("/help", "Show help"),
+    ("/quit", "Exit"),
+    ("/q", "Exit"),
+];
+
 pub fn render(frame: &mut Frame, state: &AppState) {
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
@@ -64,9 +72,13 @@ fn render_sidebar(frame: &mut Frame, state: &AppState, area: Rect) {
 }
 
 fn render_main(frame: &mut Frame, state: &AppState, area: Rect) {
+    // Calculate if we need space for suggestions
+    let suggestion = get_command_suggestion(&state.input);
+    let input_height = if suggestion.is_some() { 4 } else { 3 };
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(0), Constraint::Length(3)])
+        .constraints([Constraint::Min(0), Constraint::Length(input_height)])
         .split(area);
 
     // Messages area
@@ -103,8 +115,59 @@ fn render_main(frame: &mut Frame, state: &AppState, area: Rect) {
         frame.render_widget(placeholder, chunks[0]);
     }
 
-    // Input area
-    let input = Paragraph::new(state.input.as_str())
+    // Input area with cursor and suggestions
+    render_input(frame, state, chunks[1], suggestion);
+}
+
+fn get_command_suggestion(input: &str) -> Option<(&'static str, &'static str)> {
+    if !input.starts_with('/') || input.len() < 2 {
+        return None;
+    }
+
+    let input_lower = input.to_lowercase();
+
+    // Find first matching command
+    COMMANDS.iter()
+        .find(|(cmd, _)| cmd.starts_with(&input_lower) && *cmd != input_lower)
+        .copied()
+}
+
+fn render_input(frame: &mut Frame, state: &AppState, area: Rect, suggestion: Option<(&str, &str)>) {
+    let inner_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(if suggestion.is_some() {
+            vec![Constraint::Length(1), Constraint::Length(3)]
+        } else {
+            vec![Constraint::Length(3)]
+        })
+        .split(area);
+
+    let (input_area, suggestion_area) = if suggestion.is_some() {
+        (inner_chunks[1], Some(inner_chunks[0]))
+    } else {
+        (inner_chunks[0], None)
+    };
+
+    // Show suggestion line above input
+    if let (Some(area), Some((cmd, desc))) = (suggestion_area, suggestion) {
+        let ghost = &cmd[state.input.len()..];
+        let suggestion_line = Line::from(vec![
+            Span::raw("  "),
+            Span::styled(&state.input, Style::default().fg(Color::White)),
+            Span::styled(ghost, Style::default().fg(Color::DarkGray)),
+            Span::styled(format!("  {}", desc), Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC)),
+        ]);
+        let suggestion_widget = Paragraph::new(suggestion_line);
+        frame.render_widget(suggestion_widget, area);
+    }
+
+    // Input with cursor
+    let input_line = Line::from(vec![
+        Span::raw(&state.input),
+        Span::styled("│", Style::default().fg(Color::Cyan).add_modifier(Modifier::SLOW_BLINK)),
+    ]);
+
+    let input_widget = Paragraph::new(input_line)
         .block(Block::default().title(" > ").borders(Borders::ALL));
-    frame.render_widget(input, chunks[1]);
+    frame.render_widget(input_widget, input_area);
 }
