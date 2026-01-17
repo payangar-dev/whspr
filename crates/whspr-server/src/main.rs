@@ -52,7 +52,8 @@ async fn main() -> anyhow::Result<()> {
     let server_config = configure_server();
 
     // Initialize stores
-    let store = UserStore::new("sqlite:whspr.db?mode=rwc").await?;
+    let db_url = format!("sqlite:{}?mode=rwc", config.db_path);
+    let store = UserStore::new(&db_url).await?;
     let sessions = SessionManager::new();
     let queue = MessageQueue::new(config.message_ttl_secs);
 
@@ -68,7 +69,7 @@ async fn main() -> anyhow::Result<()> {
 
     let endpoint = Endpoint::server(server_config, config.listen_addr)?;
 
-    info!("whspr-server listening on {}", config.listen_addr);
+    info!("whspr-server listening on {} (db: {})", config.listen_addr, config.db_path);
 
     while let Some(incoming) = endpoint.accept().await {
         let store = store.clone();

@@ -1,0 +1,16 @@
+services:
+  whspr-server:
+    build: .
+    container_name: whspr-server
+    ports:
+      - "4433:4433/udp"
+    volumes:
+      - whspr-data:/app/data
+    environment:
+      - WHSPR_DB_PATH=/app/data/whspr.db
+      - WHSPR_LISTEN_ADDR=0.0.0.0:4433
+      - WHSPR_MESSAGE_TTL=86400
+    restart: unless-stopped
+
+volumes:
+  whspr-data:
