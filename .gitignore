@@ -1,0 +1,7 @@
+/target
+*.db
+*.db-journal
+.env
+*.pem
+*.key
+.whspr_key

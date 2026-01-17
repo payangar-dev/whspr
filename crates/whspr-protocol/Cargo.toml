@@ -1,0 +1,19 @@
+[package]
+name = "whspr-protocol"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde.workspace = true
+rmp-serde.workspace = true
+thiserror.workspace = true
+bytes.workspace = true
+x25519-dalek.workspace = true
+ed25519-dalek.workspace = true
+aes-gcm.workspace = true
+hkdf.workspace = true
+sha2.workspace = true
+rand.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "macros"] }

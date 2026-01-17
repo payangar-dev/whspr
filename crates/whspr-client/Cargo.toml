@@ -1,0 +1,19 @@
+[package]
+name = "whspr-client"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "whspr"
+path = "src/main.rs"
+
+[dependencies]
+whspr-protocol = { path = "../whspr-protocol" }
+tokio.workspace = true
+quinn.workspace = true
+rustls.workspace = true
+ratatui.workspace = true
+crossterm.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+thiserror.workspace = true
