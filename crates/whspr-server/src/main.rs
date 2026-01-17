@@ -1,4 +1,5 @@
 mod config;
+mod store;
 
 use config::ServerConfig;
 use quinn::{Endpoint, ServerConfig as QuinnServerConfig};
