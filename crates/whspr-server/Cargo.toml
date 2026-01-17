@@ -18,3 +18,4 @@ tracing-subscriber.workspace = true
 thiserror.workspace = true
 anyhow = "1"
 rcgen = "0.13"
+bytes.workspace = true
