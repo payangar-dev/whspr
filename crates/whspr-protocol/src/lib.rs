@@ -3,4 +3,7 @@ pub mod frame;
 pub mod identity;
 pub mod crypto;
 
-// Re-exports will be added as modules are implemented
+pub use message::*;
+pub use frame::{Frame, FrameError, MessageType, HEADER_SIZE, MAX_PAYLOAD_SIZE};
+pub use identity::{Identity, IdentityError, derive_username, verify_signature};
+pub use crypto::{CryptoError, MessageHeader, RatchetSession, x3dh_initiator, x3dh_responder};
