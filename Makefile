@@ -3,25 +3,29 @@
         linux macos macos-intel macos-arm windows \
         client server install-deps
 
+# Use cargo from rustup if not in PATH
+CARGO := $(shell which cargo 2>/dev/null || echo "$(HOME)/.cargo/bin/cargo")
+RUSTUP := $(shell which rustup 2>/dev/null || echo "$(HOME)/.cargo/bin/rustup")
+
 # Default target
 all: build
 
 # Development build
 build:
-	cargo build
+	$(CARGO) build
 
 # Run tests
 test:
-	cargo test
+	$(CARGO) test
 
 # Clean build artifacts
 clean:
-	cargo clean
+	$(CARGO) clean
 	rm -rf dist/
 
 # Release build (current platform)
 release:
-	cargo build --release
+	$(CARGO) build --release
 
 # Docker build
 docker:
@@ -29,9 +33,14 @@ docker:
 
 # Install cross-compilation dependencies
 install-deps:
-	rustup target add x86_64-apple-darwin aarch64-apple-darwin x86_64-pc-windows-gnu x86_64-unknown-linux-musl
-	cargo install cargo-zigbuild
+	$(RUSTUP) target add x86_64-apple-darwin aarch64-apple-darwin x86_64-pc-windows-gnu x86_64-unknown-linux-musl
+	$(CARGO) install cargo-zigbuild
+	@echo ""
 	@echo "NOTE: You also need Zig installed. Run: sudo snap install zig --classic --beta"
+	@echo ""
+	@echo "WARNING: macOS cross-compilation requires macOS SDK."
+	@echo "         Use 'make linux' or 'make windows' from Linux."
+	@echo "         For macOS builds, use GitHub Actions (push a tag) or build on a Mac."
 
 #
 # Cross-compilation targets
@@ -43,8 +52,8 @@ DIST_DIR := dist
 linux: $(DIST_DIR)/linux
 $(DIST_DIR)/linux:
 	mkdir -p $(DIST_DIR)/linux
-	cargo zigbuild --release --target x86_64-unknown-linux-musl --package whspr-client
-	cargo zigbuild --release --target x86_64-unknown-linux-musl --package whspr-server
+	$(CARGO) zigbuild --release --target x86_64-unknown-linux-musl --package whspr-client
+	$(CARGO) zigbuild --release --target x86_64-unknown-linux-musl --package whspr-server
 	cp target/x86_64-unknown-linux-musl/release/whspr $(DIST_DIR)/linux/
 	cp target/x86_64-unknown-linux-musl/release/whspr-server $(DIST_DIR)/linux/
 
@@ -52,8 +61,8 @@ $(DIST_DIR)/linux:
 macos-intel: $(DIST_DIR)/macos-intel
 $(DIST_DIR)/macos-intel:
 	mkdir -p $(DIST_DIR)/macos-intel
-	cargo zigbuild --release --target x86_64-apple-darwin --package whspr-client
-	cargo zigbuild --release --target x86_64-apple-darwin --package whspr-server
+	$(CARGO) zigbuild --release --target x86_64-apple-darwin --package whspr-client
+	$(CARGO) zigbuild --release --target x86_64-apple-darwin --package whspr-server
 	cp target/x86_64-apple-darwin/release/whspr $(DIST_DIR)/macos-intel/
 	cp target/x86_64-apple-darwin/release/whspr-server $(DIST_DIR)/macos-intel/
 
@@ -61,8 +70,8 @@ $(DIST_DIR)/macos-intel:
 macos-arm: $(DIST_DIR)/macos-arm
 $(DIST_DIR)/macos-arm:
 	mkdir -p $(DIST_DIR)/macos-arm
-	cargo zigbuild --release --target aarch64-apple-darwin --package whspr-client
-	cargo zigbuild --release --target aarch64-apple-darwin --package whspr-server
+	$(CARGO) zigbuild --release --target aarch64-apple-darwin --package whspr-client
+	$(CARGO) zigbuild --release --target aarch64-apple-darwin --package whspr-server
 	cp target/aarch64-apple-darwin/release/whspr $(DIST_DIR)/macos-arm/
 	cp target/aarch64-apple-darwin/release/whspr-server $(DIST_DIR)/macos-arm/
 
@@ -73,18 +82,18 @@ macos: macos-intel macos-arm
 windows: $(DIST_DIR)/windows
 $(DIST_DIR)/windows:
 	mkdir -p $(DIST_DIR)/windows
-	cargo zigbuild --release --target x86_64-pc-windows-gnu --package whspr-client
-	cargo zigbuild --release --target x86_64-pc-windows-gnu --package whspr-server
+	$(CARGO) zigbuild --release --target x86_64-pc-windows-gnu --package whspr-client
+	$(CARGO) zigbuild --release --target x86_64-pc-windows-gnu --package whspr-server
 	cp target/x86_64-pc-windows-gnu/release/whspr.exe $(DIST_DIR)/windows/
 	cp target/x86_64-pc-windows-gnu/release/whspr-server.exe $(DIST_DIR)/windows/
 
 # Build client only (all platforms)
 client:
 	mkdir -p $(DIST_DIR)/{linux,macos-intel,macos-arm,windows}
-	cargo zigbuild --release --target x86_64-unknown-linux-musl --package whspr-client
-	cargo zigbuild --release --target x86_64-apple-darwin --package whspr-client
-	cargo zigbuild --release --target aarch64-apple-darwin --package whspr-client
-	cargo zigbuild --release --target x86_64-pc-windows-gnu --package whspr-client
+	$(CARGO) zigbuild --release --target x86_64-unknown-linux-musl --package whspr-client
+	$(CARGO) zigbuild --release --target x86_64-apple-darwin --package whspr-client
+	$(CARGO) zigbuild --release --target aarch64-apple-darwin --package whspr-client
+	$(CARGO) zigbuild --release --target x86_64-pc-windows-gnu --package whspr-client
 	cp target/x86_64-unknown-linux-musl/release/whspr $(DIST_DIR)/linux/
 	cp target/x86_64-apple-darwin/release/whspr $(DIST_DIR)/macos-intel/
 	cp target/aarch64-apple-darwin/release/whspr $(DIST_DIR)/macos-arm/
@@ -93,10 +102,10 @@ client:
 # Build server only (all platforms)
 server:
 	mkdir -p $(DIST_DIR)/{linux,macos-intel,macos-arm,windows}
-	cargo zigbuild --release --target x86_64-unknown-linux-musl --package whspr-server
-	cargo zigbuild --release --target x86_64-apple-darwin --package whspr-server
-	cargo zigbuild --release --target aarch64-apple-darwin --package whspr-server
-	cargo zigbuild --release --target x86_64-pc-windows-gnu --package whspr-server
+	$(CARGO) zigbuild --release --target x86_64-unknown-linux-musl --package whspr-server
+	$(CARGO) zigbuild --release --target x86_64-apple-darwin --package whspr-server
+	$(CARGO) zigbuild --release --target aarch64-apple-darwin --package whspr-server
+	$(CARGO) zigbuild --release --target x86_64-pc-windows-gnu --package whspr-server
 	cp target/x86_64-unknown-linux-musl/release/whspr-server $(DIST_DIR)/linux/
 	cp target/x86_64-apple-darwin/release/whspr-server $(DIST_DIR)/macos-intel/
 	cp target/aarch64-apple-darwin/release/whspr-server $(DIST_DIR)/macos-arm/
