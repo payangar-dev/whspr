@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 serde.workspace = true
+serde-big-array.workspace = true
 rmp-serde.workspace = true
 thiserror.workspace = true
 bytes.workspace = true
