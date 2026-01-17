@@ -7,7 +7,7 @@ use tracing::{info, warn, error};
 use whspr_protocol::{
     Frame, MessageType,
     RegisterPayload, LookupUserPayload, UserInfoPayload,
-    SendPayload, ReceivePayload, PresencePayload,
+    SendPayload, ReceivePayload, PresencePayload, KeyExchangeData,
     decode_payload, encode_payload,
 };
 
@@ -160,10 +160,15 @@ impl ConnectionHandler {
         // Deliver queued messages
         let queued = self.queue.drain(&username).await;
         for msg in queued {
+            let key_exchange = msg.key_exchange.map(|(ik, ek)| KeyExchangeData {
+                identity_key: ik.try_into().unwrap_or([0u8; 32]),
+                ephemeral_key: ek.try_into().unwrap_or([0u8; 32]),
+            });
             let receive_payload = ReceivePayload {
                 from: msg.from,
                 ciphertext: msg.ciphertext,
                 timestamp: msg.timestamp,
+                key_exchange,
             };
             let frame = Frame::new(MessageType::Receive, encode_payload(&receive_payload)?)?;
             tx.send(frame).await?;
@@ -214,12 +219,14 @@ impl ConnectionHandler {
                 from: from.clone(),
                 ciphertext: payload.ciphertext.clone(),
                 timestamp,
+                key_exchange: payload.key_exchange.clone(),
             };
             let frame = Frame::new(MessageType::Receive, encode_payload(&receive_payload)?)?;
             let _ = tx.send(frame).await;
         } else {
             // Queue for later
-            self.queue.enqueue(&payload.to, from.clone(), payload.ciphertext, timestamp).await;
+            let key_exchange = payload.key_exchange.map(|ke| (ke.identity_key.to_vec(), ke.ephemeral_key.to_vec()));
+            self.queue.enqueue(&payload.to, from.clone(), payload.ciphertext, timestamp, key_exchange).await;
         }
 
         Ok(())

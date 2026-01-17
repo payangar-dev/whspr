@@ -13,15 +13,23 @@ use state::{AppState, Contact, Message};
 use tui::{AppEvent, Tui};
 use whspr_protocol::{
     Identity, Frame, MessageType,
-    RegisterPayload, LookupUserPayload, SendPayload,
+    RegisterPayload, LookupUserPayload, SendPayload, KeyExchangeData,
     encode_payload, decode_payload,
     AuthOkPayload, UserInfoPayload, ReceivePayload, PresencePayload,
-    crypto::{RatchetSession, MessageHeader, x3dh_initiator},
+    crypto::{RatchetSession, MessageHeader, x3dh_initiator, x3dh_responder},
 };
-use x25519_dalek::StaticSecret;
+use x25519_dalek::{StaticSecret, PublicKey};
 use rand::thread_rng;
 
 const KEY_FILE: &str = ".whspr_key";
+
+// Available commands with descriptions
+const COMMANDS: &[(&str, &str)] = &[
+    ("/add <username>", "Add a contact by username"),
+    ("/help", "Show this help message"),
+    ("/quit", "Exit the application"),
+    ("/q", "Exit the application (short)"),
+];
 
 fn load_or_create_identity() -> Identity {
     let key_path = dirs::home_dir()
@@ -114,15 +122,35 @@ async fn main() -> anyhow::Result<()> {
                         state.input.pop();
                     }
                     AppEvent::Key(KeyCode::Tab, _) => {
-                        // Cycle through conversations
-                        let names: Vec<_> = state.conversations.keys().cloned().collect();
-                        if !names.is_empty() {
-                            let current_idx = state.active_conversation
-                                .as_ref()
-                                .and_then(|c| names.iter().position(|n| n == c))
-                                .unwrap_or(0);
-                            let next_idx = (current_idx + 1) % names.len();
-                            state.select_conversation(&names[next_idx]);
+                        // Command completion if input starts with /
+                        if state.input.starts_with('/') {
+                            let input_lower = state.input.to_lowercase();
+                            // Find matching commands
+                            let matches: Vec<_> = COMMANDS.iter()
+                                .filter(|(cmd, _)| cmd.to_lowercase().starts_with(&input_lower))
+                                .collect();
+
+                            if matches.len() == 1 {
+                                // Single match - complete it
+                                let cmd = matches[0].0;
+                                // Extract just the command part (before space)
+                                let cmd_part = cmd.split_whitespace().next().unwrap_or(cmd);
+                                state.input = cmd_part.to_string();
+                                if cmd.contains('<') {
+                                    state.input.push(' ');
+                                }
+                            }
+                        } else {
+                            // Cycle through conversations
+                            let names: Vec<_> = state.conversations.keys().cloned().collect();
+                            if !names.is_empty() {
+                                let current_idx = state.active_conversation
+                                    .as_ref()
+                                    .and_then(|c| names.iter().position(|n| n == c))
+                                    .unwrap_or(0);
+                                let next_idx = (current_idx + 1) % names.len();
+                                state.select_conversation(&names[next_idx]);
+                            }
                         }
                     }
                     _ => {}
@@ -160,18 +188,55 @@ async fn handle_input(state: &mut AppState, client: &mut Client) -> anyhow::Resu
                 let frame = Frame::new(MessageType::LookupUser, encode_payload(&payload)?)?;
                 client.send_frame(frame).await?;
             }
+            "/help" | "/h" => {
+                // Show help in current conversation or create a system message
+                let help_text = COMMANDS.iter()
+                    .map(|(cmd, desc)| format!("  {}  - {}", cmd, desc))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+
+                if let Some(conv_name) = &state.active_conversation {
+                    if let Some(conv) = state.conversations.get_mut(conv_name) {
+                        conv.add_message(Message {
+                            from: "[help]".to_string(),
+                            content: format!("Available commands:\n{}", help_text),
+                            timestamp: std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap()
+                                .as_secs(),
+                            outgoing: false,
+                        });
+                    }
+                }
+            }
             "/quit" | "/q" => {
                 std::process::exit(0);
             }
-            _ => {}
+            _ => {
+                // Unknown command - show error
+                if let Some(conv_name) = &state.active_conversation {
+                    if let Some(conv) = state.conversations.get_mut(conv_name) {
+                        conv.add_message(Message {
+                            from: "[error]".to_string(),
+                            content: format!("Unknown command: {}. Type /help for available commands.", parts[0]),
+                            timestamp: std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap()
+                                .as_secs(),
+                            outgoing: false,
+                        });
+                    }
+                }
+            }
         }
     } else if let Some(conv_name) = state.active_conversation.clone() {
         // Send message to active conversation
         let identity_secret = state.identity.x25519_secret().clone();
         if let Some(conv) = state.conversations.get_mut(&conv_name) {
-            // If no ratchet, initialize one
-            if conv.ratchet.is_none() {
+            // If no ratchet, initialize one and prepare key exchange
+            let key_exchange = if conv.ratchet.is_none() {
                 let ephemeral = StaticSecret::random_from_rng(thread_rng());
+                let ephemeral_public = PublicKey::from(&ephemeral);
                 let shared_secret = x3dh_initiator(
                     &identity_secret,
                     &ephemeral,
@@ -179,7 +244,14 @@ async fn handle_input(state: &mut AppState, client: &mut Client) -> anyhow::Resu
                     &conv.contact.keys.prekey,
                 );
                 conv.ratchet = Some(RatchetSession::init_alice(&shared_secret, conv.contact.keys.prekey));
-            }
+                // Include key exchange in first message
+                Some(KeyExchangeData {
+                    identity_key: state.identity.x25519_public_key(),
+                    ephemeral_key: ephemeral_public.to_bytes(),
+                })
+            } else {
+                None
+            };
 
             let ratchet = conv.ratchet.as_mut().unwrap();
             let (header, ciphertext) = ratchet.encrypt(input.as_bytes()).map_err(|e| anyhow::anyhow!("{}", e))?;
@@ -191,6 +263,7 @@ async fn handle_input(state: &mut AppState, client: &mut Client) -> anyhow::Resu
             let payload = SendPayload {
                 to: conv_name.clone(),
                 ciphertext: encrypted_payload,
+                key_exchange,
             };
             let frame = Frame::new(MessageType::Send, encode_payload(&payload)?)?;
             client.send_frame(frame).await?;
@@ -231,11 +304,27 @@ fn handle_incoming_frame(state: &mut AppState, frame: Frame) -> anyhow::Result<(
 
             // Get or create conversation for sender
             if let Some(conv) = state.conversations.get_mut(&payload.from) {
+                // Initialize ratchet as Bob if we have key exchange data and no ratchet yet
+                if conv.ratchet.is_none() {
+                    if let Some(ke) = &payload.key_exchange {
+                        // Compute X3DH shared secret as responder (Bob)
+                        let shared_secret = x3dh_responder(
+                            state.identity.x25519_secret(),
+                            state.identity.x25519_secret(), // Use same key as prekey for simplicity
+                            &ke.identity_key,
+                            &ke.ephemeral_key,
+                        );
+                        // Initialize ratchet as Bob
+                        conv.ratchet = Some(RatchetSession::init_bob(
+                            &shared_secret,
+                            state.identity.x25519_secret().clone(),
+                        ));
+                    }
+                }
+
                 // Try to decrypt
                 let content = if let Some(ratchet) = &mut conv.ratchet {
                     // Deserialize header from ciphertext prefix
-                    // The header is MessagePack encoded, we need to figure out its length
-                    // For simplicity, try to decode header and use remaining as ciphertext
                     if let Ok(header) = decode_payload::<MessageHeader>(&payload.ciphertext) {
                         // Find where header ends - encode header to find its serialized length
                         let header_bytes = encode_payload(&header).unwrap_or_default();
@@ -244,11 +333,10 @@ fn handle_incoming_frame(state: &mut AppState, frame: Frame) -> anyhow::Result<(
                             .map(|pt| String::from_utf8_lossy(&pt).to_string())
                             .unwrap_or_else(|_| "[decryption failed]".to_string())
                     } else {
-                        String::from_utf8_lossy(&payload.ciphertext).to_string()
+                        "[invalid message format]".to_string()
                     }
                 } else {
-                    // No ratchet yet - message is plaintext or we need to init as Bob
-                    String::from_utf8_lossy(&payload.ciphertext).to_string()
+                    "[no key exchange - cannot decrypt]".to_string()
                 };
 
                 conv.add_message(Message {

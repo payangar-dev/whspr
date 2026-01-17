@@ -8,6 +8,7 @@ pub struct QueuedMessage {
     pub from: String,
     pub ciphertext: Vec<u8>,
     pub timestamp: u64,
+    pub key_exchange: Option<(Vec<u8>, Vec<u8>)>, // (identity_key, ephemeral_key)
     queued_at: Instant,
 }
 
@@ -25,7 +26,7 @@ impl MessageQueue {
         }
     }
 
-    pub async fn enqueue(&self, to: &str, from: String, ciphertext: Vec<u8>, timestamp: u64) {
+    pub async fn enqueue(&self, to: &str, from: String, ciphertext: Vec<u8>, timestamp: u64, key_exchange: Option<(Vec<u8>, Vec<u8>)>) {
         let mut queues = self.queues.write().await;
         let queue = queues.entry(to.to_string()).or_default();
 
@@ -33,6 +34,7 @@ impl MessageQueue {
             from,
             ciphertext,
             timestamp,
+            key_exchange,
             queued_at: Instant::now(),
         });
     }
@@ -80,8 +82,8 @@ mod tests {
     async fn test_enqueue_and_drain() {
         let queue = MessageQueue::new(3600);
 
-        queue.enqueue("alice", "bob".to_string(), vec![1, 2, 3], 12345).await;
-        queue.enqueue("alice", "carol".to_string(), vec![4, 5, 6], 12346).await;
+        queue.enqueue("alice", "bob".to_string(), vec![1, 2, 3], 12345, None).await;
+        queue.enqueue("alice", "carol".to_string(), vec![4, 5, 6], 12346, None).await;
 
         let messages = queue.drain("alice").await;
         assert_eq!(messages.len(), 2);
@@ -97,7 +99,7 @@ mod tests {
     async fn test_ttl_expiry() {
         let queue = MessageQueue::new(0); // 0 second TTL = immediate expiry
 
-        queue.enqueue("alice", "bob".to_string(), vec![1, 2, 3], 12345).await;
+        queue.enqueue("alice", "bob".to_string(), vec![1, 2, 3], 12345, None).await;
 
         // Small delay to ensure expiry
         tokio::time::sleep(Duration::from_millis(10)).await;

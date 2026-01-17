@@ -53,11 +53,23 @@ pub struct UserInfoPayload {
     pub online: bool,
 }
 
+/// Initial key exchange data (included in first message)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KeyExchangeData {
+    /// Sender's identity public key
+    pub identity_key: [u8; 32],
+    /// Sender's ephemeral public key for X3DH
+    pub ephemeral_key: [u8; 32],
+}
+
 /// Encrypted message envelope
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SendPayload {
     pub to: String,
     pub ciphertext: Vec<u8>,
+    /// Key exchange data for first message (None for subsequent messages)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key_exchange: Option<KeyExchangeData>,
 }
 
 /// Incoming message
@@ -66,6 +78,9 @@ pub struct ReceivePayload {
     pub from: String,
     pub ciphertext: Vec<u8>,
     pub timestamp: u64,
+    /// Key exchange data for first message (None for subsequent messages)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key_exchange: Option<KeyExchangeData>,
 }
 
 /// Message acknowledgment
