@@ -8,12 +8,12 @@ use ratatui::{
 
 use crate::state::AppState;
 
-// Available commands for suggestions
-const COMMANDS: &[(&str, &str)] = &[
-    ("/add", "Add a contact"),
-    ("/help", "Show help"),
-    ("/quit", "Exit"),
-    ("/q", "Exit"),
+// Available commands with argument info: (command, description, arg_name, arg_help)
+const COMMANDS: &[(&str, &str, Option<(&str, &str)>)] = &[
+    ("/add", "Add a contact", Some(("<username>", "The username to add (e.g., brave-falcon)"))),
+    ("/help", "Show available commands", None),
+    ("/quit", "Exit whspr", None),
+    ("/q", "Exit whspr", None),
 ];
 
 pub fn render(frame: &mut Frame, state: &AppState) {
@@ -72,9 +72,10 @@ fn render_sidebar(frame: &mut Frame, state: &AppState, area: Rect) {
 }
 
 fn render_main(frame: &mut Frame, state: &AppState, area: Rect) {
-    // Calculate if we need space for suggestions
-    let suggestion = get_command_suggestion(&state.input);
-    let input_height = if suggestion.is_some() { 4 } else { 3 };
+    // Calculate suggestions
+    let suggestions = get_suggestions(&state.input);
+    let suggestion_count = suggestions.len();
+    let input_height = if suggestion_count > 0 { 3 + suggestion_count as u16 } else { 3 };
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -116,58 +117,95 @@ fn render_main(frame: &mut Frame, state: &AppState, area: Rect) {
     }
 
     // Input area with cursor and suggestions
-    render_input(frame, state, chunks[1], suggestion);
+    render_input(frame, state, chunks[1], &suggestions);
 }
 
-fn get_command_suggestion(input: &str) -> Option<(&'static str, &'static str)> {
-    if !input.starts_with('/') || input.len() < 2 {
-        return None;
+enum Suggestion {
+    Command { cmd: &'static str, desc: &'static str },
+    Argument { arg: &'static str, help: &'static str },
+}
+
+fn get_suggestions(input: &str) -> Vec<Suggestion> {
+    if !input.starts_with('/') {
+        return vec![];
     }
 
-    let input_lower = input.to_lowercase();
+    // Check if we're in argument mode (command + space)
+    if input.contains(' ') {
+        let cmd_part = input.split_whitespace().next().unwrap_or("");
+        // Find matching command
+        if let Some((_, _, Some((arg, help)))) = COMMANDS.iter()
+            .find(|(cmd, _, _)| *cmd == cmd_part)
+        {
+            return vec![Suggestion::Argument { arg, help }];
+        }
+        return vec![];
+    }
 
-    // Find first matching command
+    // Show matching commands (max 4)
+    let input_lower = input.to_lowercase();
     COMMANDS.iter()
-        .find(|(cmd, _)| cmd.starts_with(&input_lower) && *cmd != input_lower)
-        .copied()
+        .filter(|(cmd, _, _)| cmd.starts_with(&input_lower))
+        .take(4)
+        .map(|(cmd, desc, _)| Suggestion::Command { cmd, desc })
+        .collect()
 }
 
-fn render_input(frame: &mut Frame, state: &AppState, area: Rect, suggestion: Option<(&str, &str)>) {
-    let inner_chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints(if suggestion.is_some() {
-            vec![Constraint::Length(1), Constraint::Length(3)]
-        } else {
-            vec![Constraint::Length(3)]
-        })
-        .split(area);
+fn render_input(frame: &mut Frame, state: &AppState, area: Rect, suggestions: &[Suggestion]) {
+    let suggestion_count = suggestions.len();
 
-    let (input_area, suggestion_area) = if suggestion.is_some() {
-        (inner_chunks[1], Some(inner_chunks[0]))
+    let constraints: Vec<Constraint> = if suggestion_count > 0 {
+        let mut c = vec![Constraint::Length(3)]; // Input box
+        for _ in 0..suggestion_count {
+            c.push(Constraint::Length(1)); // Each suggestion line
+        }
+        c
     } else {
-        (inner_chunks[0], None)
+        vec![Constraint::Length(3)]
     };
 
-    // Show suggestion line above input
-    if let (Some(area), Some((cmd, desc))) = (suggestion_area, suggestion) {
-        let ghost = &cmd[state.input.len()..];
-        let suggestion_line = Line::from(vec![
-            Span::raw("  "),
-            Span::styled(&state.input, Style::default().fg(Color::White)),
-            Span::styled(ghost, Style::default().fg(Color::DarkGray)),
-            Span::styled(format!("  {}", desc), Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC)),
-        ]);
-        let suggestion_widget = Paragraph::new(suggestion_line);
-        frame.render_widget(suggestion_widget, area);
-    }
+    let inner_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(constraints)
+        .split(area);
 
-    // Input with cursor
+    // Input with block cursor
     let input_line = Line::from(vec![
         Span::raw(&state.input),
-        Span::styled("│", Style::default().fg(Color::Cyan).add_modifier(Modifier::SLOW_BLINK)),
+        Span::styled("█", Style::default().fg(Color::White).add_modifier(Modifier::SLOW_BLINK)),
     ]);
 
     let input_widget = Paragraph::new(input_line)
         .block(Block::default().title(" > ").borders(Borders::ALL));
-    frame.render_widget(input_widget, input_area);
+    frame.render_widget(input_widget, inner_chunks[0]);
+
+    // Render suggestions below input
+    for (i, suggestion) in suggestions.iter().enumerate() {
+        let line = match suggestion {
+            Suggestion::Command { cmd, desc } => {
+                let ghost = if cmd.starts_with(&state.input) {
+                    &cmd[state.input.len()..]
+                } else {
+                    ""
+                };
+                Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(*cmd, Style::default().fg(Color::Yellow)),
+                    Span::styled(ghost, Style::default().fg(Color::DarkGray)),
+                    Span::raw("  "),
+                    Span::styled(*desc, Style::default().fg(Color::DarkGray)),
+                ])
+            }
+            Suggestion::Argument { arg, help } => {
+                Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(*arg, Style::default().fg(Color::Magenta)),
+                    Span::raw("  "),
+                    Span::styled(*help, Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC)),
+                ])
+            }
+        };
+        let widget = Paragraph::new(line);
+        frame.render_widget(widget, inner_chunks[i + 1]);
+    }
 }
