@@ -20,3 +20,5 @@ thiserror.workspace = true
 anyhow = "1"
 bytes.workspace = true
 dirs = "5"
+rand.workspace = true
+x25519-dalek.workspace = true

@@ -16,7 +16,10 @@ use whspr_protocol::{
     RegisterPayload, LookupUserPayload, SendPayload,
     encode_payload, decode_payload,
     AuthOkPayload, UserInfoPayload, ReceivePayload, PresencePayload,
+    crypto::{RatchetSession, MessageHeader, x3dh_initiator},
 };
+use x25519_dalek::StaticSecret;
+use rand::thread_rng;
 
 const KEY_FILE: &str = ".whspr_key";
 
@@ -164,11 +167,30 @@ async fn handle_input(state: &mut AppState, client: &mut Client) -> anyhow::Resu
         }
     } else if let Some(conv_name) = state.active_conversation.clone() {
         // Send message to active conversation
+        let identity_secret = state.identity.x25519_secret().clone();
         if let Some(conv) = state.conversations.get_mut(&conv_name) {
-            // TODO: Encrypt with ratchet
+            // If no ratchet, initialize one
+            if conv.ratchet.is_none() {
+                let ephemeral = StaticSecret::random_from_rng(thread_rng());
+                let shared_secret = x3dh_initiator(
+                    &identity_secret,
+                    &ephemeral,
+                    &conv.contact.keys.identity_key,
+                    &conv.contact.keys.prekey,
+                );
+                conv.ratchet = Some(RatchetSession::init_alice(&shared_secret, conv.contact.keys.prekey));
+            }
+
+            let ratchet = conv.ratchet.as_mut().unwrap();
+            let (header, ciphertext) = ratchet.encrypt(input.as_bytes()).map_err(|e| anyhow::anyhow!("{}", e))?;
+
+            // Serialize header + ciphertext together
+            let mut encrypted_payload = encode_payload(&header)?;
+            encrypted_payload.extend(ciphertext);
+
             let payload = SendPayload {
                 to: conv_name.clone(),
-                ciphertext: input.as_bytes().to_vec(), // Plaintext for now
+                ciphertext: encrypted_payload,
             };
             let frame = Frame::new(MessageType::Send, encode_payload(&payload)?)?;
             client.send_frame(frame).await?;
@@ -206,10 +228,29 @@ fn handle_incoming_frame(state: &mut AppState, frame: Frame) -> anyhow::Result<(
         }
         MessageType::Receive => {
             let payload: ReceivePayload = decode_payload(&frame.payload)?;
-            // TODO: Decrypt with ratchet
-            let content = String::from_utf8_lossy(&payload.ciphertext).to_string();
 
+            // Get or create conversation for sender
             if let Some(conv) = state.conversations.get_mut(&payload.from) {
+                // Try to decrypt
+                let content = if let Some(ratchet) = &mut conv.ratchet {
+                    // Deserialize header from ciphertext prefix
+                    // The header is MessagePack encoded, we need to figure out its length
+                    // For simplicity, try to decode header and use remaining as ciphertext
+                    if let Ok(header) = decode_payload::<MessageHeader>(&payload.ciphertext) {
+                        // Find where header ends - encode header to find its serialized length
+                        let header_bytes = encode_payload(&header).unwrap_or_default();
+                        let ct = &payload.ciphertext[header_bytes.len()..];
+                        ratchet.decrypt(&header, ct)
+                            .map(|pt| String::from_utf8_lossy(&pt).to_string())
+                            .unwrap_or_else(|_| "[decryption failed]".to_string())
+                    } else {
+                        String::from_utf8_lossy(&payload.ciphertext).to_string()
+                    }
+                } else {
+                    // No ratchet yet - message is plaintext or we need to init as Bob
+                    String::from_utf8_lossy(&payload.ciphertext).to_string()
+                };
+
                 conv.add_message(Message {
                     from: payload.from.clone(),
                     content,

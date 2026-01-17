@@ -2609,6 +2609,7 @@ dependencies = [
  "crossterm",
  "dirs",
  "quinn",
+ "rand 0.8.5",
  "ratatui",
  "rustls",
  "thiserror 2.0.17",
@@ -2616,6 +2617,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "whspr-protocol",
+ "x25519-dalek",
 ]
 
 [[package]]
