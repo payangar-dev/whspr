@@ -19,3 +19,4 @@ tracing-subscriber.workspace = true
 thiserror.workspace = true
 anyhow = "1"
 bytes.workspace = true
+dirs = "5"
